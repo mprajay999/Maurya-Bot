@@ -6,33 +6,51 @@ import os
 import re
 import requests
 import traceback
-from io import StringIO
+from pathlib import Path
 
-# Load .env file manually
-def load_env_file():
-    env_path = '/Users/mprajay999/Maurya Bot/.env'
-    if os.path.exists(env_path):
+# ──────────────────────────────────────────
+# Configuration — works on both local and Streamlit Cloud
+# ──────────────────────────────────────────
+BASE_DIR = Path(__file__).resolve().parent
+
+
+def get_api_key():
+    """Get OpenAI API key from Streamlit secrets (cloud) or .env (local)."""
+    # 1. Try Streamlit secrets (for Streamlit Cloud deployment)
+    try:
+        return st.secrets["OpenAI_API_Key"]
+    except (KeyError, FileNotFoundError):
+        pass
+
+    # 2. Try environment variable (already set)
+    key = os.getenv("OpenAI_API_Key") or os.getenv("OPENAI_API_KEY")
+    if key:
+        return key
+
+    # 3. Try loading from local .env file
+    env_path = BASE_DIR / '.env'
+    if env_path.exists():
         try:
             with open(env_path, 'r') as f:
                 for line in f:
                     line = line.strip()
-                    if line and not line.startswith('#'):
-                        if '=' in line:
-                            key, value = line.split('=', 1)
-                            key = key.strip()
-                            value = value.strip()
-                            os.environ[key] = value
-        except Exception as e:
-            st.error(f"Error loading .env file: {e}")
+                    if line and not line.startswith('#') and '=' in line:
+                        k, v = line.split('=', 1)
+                        k, v = k.strip(), v.strip()
+                        os.environ[k] = v
+                        if k in ('OpenAI_API_Key', 'OPENAI_API_KEY'):
+                            key = v
+        except Exception:
+            pass
 
-# Load environment variables
-load_env_file()
+    return key or os.getenv("OpenAI_API_Key") or os.getenv("OPENAI_API_KEY")
 
 
 # Function to load data (cached)
 @st.cache_data(ttl=300)
-def load_inventory_data(csv_path='/Users/mprajay999/Maurya Bot/Power BI Invenotry Table.csv'):
+def load_inventory_data():
     """Load and process the inventory data"""
+    csv_path = BASE_DIR / 'Power BI Invenotry Table.csv'
     try:
         df = pd.read_csv(csv_path, dtype=str)
         df.columns = df.columns.str.strip()
@@ -273,10 +291,10 @@ if prompt := st.chat_input("Type your question here..."):
     
     # Generate assistant response
     with st.chat_message("assistant"):
-        api_key = os.getenv("OpenAI_API_Key") or os.getenv("OPENAI_API_KEY")
+        api_key = get_api_key()
         
         if not api_key:
-            error_msg = "❌ **OpenAI API key not found.** Please set `OpenAI_API_Key` in your `.env` file."
+            error_msg = "❌ **OpenAI API key not found.** Please set `OpenAI_API_Key` in Streamlit secrets or your `.env` file."
             st.markdown(error_msg)
             st.session_state.messages.append({"role": "assistant", "content": error_msg})
         else:
